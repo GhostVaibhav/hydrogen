@@ -11,4 +11,5 @@ ADD_EXECUTABLE(hydro
                 "include/tokenizer.hpp"
                 "include/parser.hpp"
                 "include/generator.hpp"
+                "include/allocator.hpp"
 )
