@@ -13,24 +13,40 @@ struct NodeTermIdent {
   Token ident;
 };
 
-struct NodeTerm {
-  std::variant<NodeTermIntLit*, NodeTermIdent*> var;
+struct NodeExpr;
+
+struct NodeTermParen {
+  NodeExpr* expr;
 };
 
-struct NodeExpr;
+struct NodeTerm {
+  std::variant<NodeTermIntLit*, NodeTermIdent*, NodeTermParen*> var;
+};
 
 struct NodeBinExprAdd {
   NodeExpr* lhs;
   NodeExpr* rhs;
 };
 
-// struct NodeBinExprMul {
-//     NodeExpr* lhs;
-//     NodeExpr* rhs;
-// };
+struct NodeBinExprMul {
+  NodeExpr* lhs;
+  NodeExpr* rhs;
+};
+
+struct NodeBinExprSub {
+  NodeExpr* lhs;
+  NodeExpr* rhs;
+};
+
+struct NodeBinExprDiv {
+  NodeExpr* lhs;
+  NodeExpr* rhs;
+};
 
 struct NodeBinExpr {
-  NodeBinExprAdd* add;
+  std::variant<NodeBinExprMul*, NodeBinExprAdd*, NodeBinExprDiv*,
+               NodeBinExprSub*>
+      var;
 };
 
 struct NodeExpr {
@@ -46,8 +62,19 @@ struct NodeStmtLet {
   NodeExpr* expr;
 };
 
+struct NodeStmt;
+
+struct NodeScope {
+  std::vector<NodeStmt*> stmts;
+};
+
+struct NodeStmtIf {
+  NodeExpr* expr;
+  NodeScope* scope;
+};
+
 struct NodeStmt {
-  std::variant<NodeStmtExit*, NodeStmtLet*> var;
+  std::variant<NodeStmtExit*, NodeStmtLet*, NodeScope*, NodeStmtIf*> var;
 };
 
 struct NodeProg {
@@ -104,38 +131,99 @@ class Parser {
       auto term = m_allocator.alloc<NodeTerm>();
       term->var = term_ident;
       return term;
+    } else if (auto open_paren = try_consume(TokenType::_open_paren)) {
+      auto term_paren = m_allocator.alloc<NodeTermParen>();
+      auto expr = parse_expr();
+      if (!expr.has_value()) {
+        std::cerr << "Expected some expression" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      try_consume(TokenType::_close_paren, "Expected close parenthesis");
+      term_paren->expr = expr.value();
+      auto term = m_allocator.alloc<NodeTerm>();
+      term->var = term_paren;
+      return term;
     } else {
       return {};
     }
   }
 
-  std::optional<NodeExpr*> parse_expr() {
-    if (auto term = parse_term()) {
-      if (auto op_add = try_consume(TokenType::_op_add)) {
-        auto bin_expr = m_allocator.alloc<NodeBinExpr>();
-        auto bin_expr_add = m_allocator.alloc<NodeBinExprAdd>();
-        auto lhs_expr = m_allocator.alloc<NodeExpr>();
-        lhs_expr->var = term.value();
-        bin_expr_add->lhs = lhs_expr;
+  std::optional<NodeExpr*> parse_expr(int min_prec = 0) {
+    auto term_lhs = parse_term();
 
-        if (auto rhs = parse_expr()) {
-          bin_expr_add->rhs = rhs.value();
-          bin_expr->add = bin_expr_add;
-          auto expr = m_allocator.alloc<NodeExpr>();
-          expr->var = bin_expr;
-          return expr;
-        } else {
-          std::cerr << "Expected an RHS" << std::endl;
-          exit(EXIT_FAILURE);
-        }
-      } else {
-        auto expr = m_allocator.alloc<NodeExpr>();
-        expr->var = term.value();
-        return expr;
-      }
-    } else {
+    if (!term_lhs.has_value()) {
       return {};
     }
+    auto expr_lhs = m_allocator.alloc<NodeExpr>();
+    expr_lhs->var = term_lhs.value();
+
+    while (true) {
+      auto curToken = peek();
+      std::optional<int> prec;
+      if (curToken.has_value()) {
+        prec = bin_prec(curToken.value().type);
+        if (!prec.has_value() || prec.value() < min_prec) {
+          break;
+        }
+      } else {
+        break;
+      }
+      auto op = consume();
+      int next_min_prec = prec.value() + 1;
+      auto expr_rhs = parse_expr(next_min_prec);
+
+      if (!expr_rhs.has_value()) {
+        std::cerr << "Unable to evaluate expression" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+
+      auto expr = m_allocator.alloc<NodeBinExpr>();
+      auto expr_lhs_copy = m_allocator.alloc<NodeExpr>();
+
+      if (op.type == TokenType::_op_add) {
+        auto add = m_allocator.alloc<NodeBinExprAdd>();
+        expr_lhs_copy->var = expr_lhs->var;
+        add->lhs = expr_lhs_copy;
+        add->rhs = expr_rhs.value();
+        expr->var = add;
+      } else if (op.type == TokenType::_op_mul) {
+        auto mul = m_allocator.alloc<NodeBinExprMul>();
+        expr_lhs_copy->var = expr_lhs->var;
+        mul->lhs = expr_lhs_copy;
+        mul->rhs = expr_rhs.value();
+        expr->var = mul;
+      } else if (op.type == TokenType::_op_sub) {
+        auto sub = m_allocator.alloc<NodeBinExprSub>();
+        expr_lhs_copy->var = expr_lhs->var;
+        sub->lhs = expr_lhs_copy;
+        sub->rhs = expr_rhs.value();
+        expr->var = sub;
+      } else if (op.type == TokenType::_op_div) {
+        auto div = m_allocator.alloc<NodeBinExprDiv>();
+        expr_lhs_copy->var = expr_lhs->var;
+        div->lhs = expr_lhs_copy;
+        div->rhs = expr_rhs.value();
+        expr->var = div;
+      } else {
+        assert(false);
+      }
+
+      expr_lhs->var = expr;
+    }
+
+    return expr_lhs;
+  }
+
+  std::optional<NodeScope*> parse_scope() {
+    if (!try_consume(TokenType::_open_braces).has_value()) {
+      return {};
+    }
+    auto scope = m_allocator.alloc<NodeScope>();
+    while (auto stmt = parse_stmt()) {
+      scope->stmts.push_back(stmt.value());
+    }
+    try_consume(TokenType::_closed_braces, "Expected closed braces");
+    return scope;
   }
 
   std::optional<NodeStmt*> parse_stmt() {
@@ -177,6 +265,35 @@ class Parser {
       try_consume(TokenType::_semi, "Did you forget the semicolon?");
       auto stmt = m_allocator.alloc<NodeStmt>();
       stmt->var = stmt_let;
+      return stmt;
+    } else if (peek().has_value() &&
+               peek().value().type == TokenType::_open_braces) {
+      if (auto scope = parse_scope()) {
+        auto stmt = m_allocator.alloc<NodeStmt>();
+        stmt->var = scope.value();
+        return stmt;
+      } else {
+        std::cerr << "Invalid scope\n";
+        exit(EXIT_FAILURE);
+      }
+    } else if (auto if_ = try_consume(TokenType::_if)) {
+      try_consume(TokenType::_open_paren, "Expected open parenthesis");
+      auto stmt_if = m_allocator.alloc<NodeStmtIf>();
+      if (auto expr = parse_expr()) {
+        stmt_if->expr = expr.value();
+      } else {
+        std::cerr << "Invalid expresion inside if\n";
+        exit(EXIT_FAILURE);
+      }
+      try_consume(TokenType::_close_paren, "Expected closed parenthesis");
+      if (auto scope = parse_scope()) {
+        stmt_if->scope = scope.value();
+      } else {
+        std::cerr << "Invalid scope\n";
+        exit(EXIT_FAILURE);
+      }
+      auto stmt = m_allocator.alloc<NodeStmt>();
+      stmt->var = stmt_if;
       return stmt;
     }
     return {};

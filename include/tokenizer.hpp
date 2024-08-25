@@ -1,17 +1,35 @@
 #pragma once
 
 enum TokenType {
+  _if,
   _exit,
   _int_lit,
   _semi,
   _open_paren,
   _close_paren,
+  _open_braces,
+  _closed_braces,
   _ident,
   _let,
   _op_eq,
   _op_add,
-  _op_mul
+  _op_mul,
+  _op_sub,
+  _op_div
 };
+
+std::optional<int> bin_prec(TokenType type) {
+  switch (type) {
+    case TokenType::_op_add:
+    case TokenType::_op_sub:
+      return 0;
+    case TokenType::_op_mul:
+    case TokenType::_op_div:
+      return 1;
+    default:
+      return {};
+  }
+}
 
 struct Token {
   TokenType type;
@@ -49,15 +67,15 @@ class Tokenizer {
         if (buffer == "exit") {
           tokens.push_back({.type = TokenType::_exit});
           buffer.clear();
-          continue;
         } else if (buffer == "let") {
           tokens.push_back({.type = TokenType::_let});
           buffer.clear();
-          continue;
+        } else if (buffer == "if") {
+          tokens.push_back({.type = TokenType::_if});
+          buffer.clear();
         } else {
           tokens.push_back({.type = TokenType::_ident, .value = buffer});
           buffer.clear();
-          continue;
         }
       } else if (std::isdigit(peek().value())) {
         buffer.push_back(consume());
@@ -68,34 +86,38 @@ class Tokenizer {
 
         tokens.push_back({.type = TokenType::_int_lit, .value = buffer});
         buffer.clear();
-        continue;
       } else if (peek().value() == '(') {
         consume();
         tokens.push_back({.type = TokenType::_open_paren});
-        continue;
       } else if (peek().value() == ')') {
         consume();
         tokens.push_back({.type = TokenType::_close_paren});
-        continue;
       } else if (peek().value() == ';') {
         consume();
         tokens.push_back({.type = TokenType::_semi});
-        continue;
       } else if (peek().value() == '=') {
         consume();
         tokens.push_back({.type = TokenType::_op_eq});
-        continue;
       } else if (peek().value() == '+') {
         consume();
         tokens.push_back({.type = TokenType::_op_add});
-        continue;
       } else if (peek().value() == '*') {
         consume();
         tokens.push_back({.type = TokenType::_op_mul});
-        continue;
+      } else if (peek().value() == '-') {
+        consume();
+        tokens.push_back({.type = TokenType::_op_sub});
+      } else if (peek().value() == '/') {
+        consume();
+        tokens.push_back({.type = TokenType::_op_div});
+      } else if (peek().value() == '{') {
+        consume();
+        tokens.push_back({.type = TokenType::_open_braces});
+      } else if (peek().value() == '}') {
+        consume();
+        tokens.push_back({.type = TokenType::_closed_braces});
       } else if (std::isspace(peek().value())) {
         consume();
-        continue;
       } else {
         std::cerr << "Invalid syntax" << std::endl;
         exit(EXIT_FAILURE);
