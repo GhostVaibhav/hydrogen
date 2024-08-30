@@ -2,6 +2,8 @@
 
 enum TokenType {
   _if,
+  _elif,
+  _else,
   _exit,
   _int_lit,
   _semi,
@@ -73,6 +75,12 @@ class Tokenizer {
         } else if (buffer == "if") {
           tokens.push_back({.type = TokenType::_if});
           buffer.clear();
+        } else if (buffer == "elif") {
+          tokens.push_back({.type = TokenType::_elif});
+          buffer.clear();
+        } else if (buffer == "else") {
+          tokens.push_back({.type = TokenType::_else});
+          buffer.clear();
         } else {
           tokens.push_back({.type = TokenType::_ident, .value = buffer});
           buffer.clear();
@@ -86,6 +94,23 @@ class Tokenizer {
 
         tokens.push_back({.type = TokenType::_int_lit, .value = buffer});
         buffer.clear();
+      } else if (peek().value() == '/' && peek(1).has_value() &&
+                 peek(1).value() == '/') {
+        while (peek().has_value() && peek().value() != '\n') {
+          consume();
+        }
+      } else if (peek().value() == '/' && peek(1).has_value() &&
+                 peek(1).value() == '*') {
+        consume();
+        consume();
+        while (peek().has_value()) {
+          if (peek().value() == '*' && peek(1).has_value() &&
+              peek(1).value() == '/')
+            break;
+          consume();
+        }
+        if (peek().has_value()) consume();
+        if (peek().has_value()) consume();
       } else if (peek().value() == '(') {
         consume();
         tokens.push_back({.type = TokenType::_open_paren});

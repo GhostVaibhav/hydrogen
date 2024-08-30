@@ -68,9 +68,26 @@ struct NodeScope {
   std::vector<NodeStmt*> stmts;
 };
 
+struct NodeIfPred;
+
+struct NodeIfPredElif {
+  NodeExpr* expr;
+  NodeScope* scope;
+  std::optional<NodeIfPred*> pred;
+};
+
+struct NodeIfPredElse {
+  NodeScope* scope;
+};
+
+struct NodeIfPred {
+  std::variant<NodeIfPredElif*, NodeIfPredElse*> var;
+};
+
 struct NodeStmtIf {
   NodeExpr* expr;
   NodeScope* scope;
+  std::optional<NodeIfPred*> pred;
 };
 
 struct NodeStmt {
@@ -117,6 +134,42 @@ class Parser {
  public:
   explicit Parser(std::vector<Token> tokens)
       : m_tokens(std::move(tokens)), m_allocator(1024 * 1024 * 4) {}
+
+  std::optional<NodeIfPred*> parse_if_pred() {
+    if (try_consume(TokenType::_elif)) {
+      try_consume(TokenType::_open_paren, "Expected open parentheses");
+      auto elif = m_allocator.alloc<NodeIfPredElif>();
+      if (auto expr = parse_expr()) {
+        elif->expr = expr.value();
+      } else {
+        std::cerr << "Expression expected" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      try_consume(TokenType::_close_paren, "Expected closed parentheses");
+      if (auto scope = parse_scope()) {
+        elif->scope = scope.value();
+      } else {
+        std::cerr << "Expected scope" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      elif->pred = parse_if_pred();
+      auto pred = m_allocator.alloc<NodeIfPred>();
+      pred->var = elif;
+      return pred;
+    } else if (try_consume(TokenType::_else)) {
+      auto else_ = m_allocator.alloc<NodeIfPredElse>();
+      if (auto scope = parse_scope()) {
+        else_->scope = scope.value();
+      } else {
+        std::cerr << "Expected scope" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      auto pred = m_allocator.alloc<NodeIfPred>();
+      pred->var = else_;
+      return pred;
+    }
+    return {};
+  }
 
   std::optional<NodeTerm*> parse_term() {
     if (auto int_lit = try_consume(TokenType::_int_lit)) {
@@ -292,6 +345,7 @@ class Parser {
         std::cerr << "Invalid scope\n";
         exit(EXIT_FAILURE);
       }
+      stmt_if->pred = parse_if_pred();
       auto stmt = m_allocator.alloc<NodeStmt>();
       stmt->var = stmt_if;
       return stmt;
