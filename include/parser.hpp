@@ -117,12 +117,12 @@ class Parser {
 
   Token consume() { return m_tokens.at(m_index++); }
 
-  Token try_consume(TokenType type, const std::string& err_msg) {
+  Token try_consume_err(TokenType type) {
     if (peek().has_value() && peek().value().type == type) {
       return consume();
     } else {
-      std::cerr << err_msg << std::endl;
-      exit(EXIT_FAILURE);
+      error_expected(token_to_string(type));
+      return {};
     }
   }
 
@@ -142,22 +142,26 @@ class Parser {
   explicit Parser(std::vector<Token> tokens)
       : m_tokens(std::move(tokens)), m_allocator(1024 * 1024 * 4) {}
 
+  void error_expected(const std::string& msg) {
+    int line = peek(-1).value().line;
+    std::cerr << "[" << line << "]" << "[PARSER] Expected " << msg << std::endl;
+    exit(EXIT_FAILURE);
+  }
+
   std::optional<NodeIfPred*> parse_if_pred() {
     if (try_consume(TokenType::_elif)) {
-      try_consume(TokenType::_open_paren, "Expected open parentheses");
+      try_consume_err(TokenType::_open_paren);
       auto elif = m_allocator.alloc<NodeIfPredElif>();
       if (auto expr = parse_expr()) {
         elif->expr = expr.value();
       } else {
-        std::cerr << "Expression expected" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
-      try_consume(TokenType::_close_paren, "Expected closed parentheses");
+      try_consume_err(TokenType::_close_paren);
       if (auto scope = parse_scope()) {
         elif->scope = scope.value();
       } else {
-        std::cerr << "Expected scope" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("scope");
       }
       elif->pred = parse_if_pred();
       auto pred = m_allocator.alloc<NodeIfPred>();
@@ -168,8 +172,7 @@ class Parser {
       if (auto scope = parse_scope()) {
         else_->scope = scope.value();
       } else {
-        std::cerr << "Expected scope" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("scope");
       }
       auto pred = m_allocator.alloc<NodeIfPred>();
       pred->var = else_;
@@ -195,10 +198,9 @@ class Parser {
       auto term_paren = m_allocator.alloc<NodeTermParen>();
       auto expr = parse_expr();
       if (!expr.has_value()) {
-        std::cerr << "Expected some expression" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
-      try_consume(TokenType::_close_paren, "Expected close parenthesis");
+      try_consume_err(TokenType::_close_paren);
       term_paren->expr = expr.value();
       auto term = m_allocator.alloc<NodeTerm>();
       term->var = term_paren;
@@ -233,8 +235,7 @@ class Parser {
       auto expr_rhs = parse_expr(next_min_prec);
 
       if (!expr_rhs.has_value()) {
-        std::cerr << "Unable to evaluate expression" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
 
       auto expr = m_allocator.alloc<NodeBinExpr>();
@@ -282,7 +283,7 @@ class Parser {
     while (auto stmt = parse_stmt()) {
       scope->stmts.push_back(stmt.value());
     }
-    try_consume(TokenType::_closed_braces, "Expected closed braces");
+    try_consume_err(TokenType::_closed_braces);
     return scope;
   }
 
@@ -297,12 +298,11 @@ class Parser {
         expr = nodeExpr.value();
         stmt_exit->expr = expr;
       } else {
-        std::cerr << "Unable to parse expression in exit node" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
 
-      try_consume(TokenType::_close_paren, "Expected a closing parenthesis");
-      try_consume(TokenType::_semi, "Did you forget the semicolon?");
+      try_consume_err(TokenType::_close_paren);
+      try_consume_err(TokenType::_semi);
 
       auto stmt = m_allocator.alloc<NodeStmt>();
       stmt->var = stmt_exit;
@@ -319,10 +319,9 @@ class Parser {
       if (auto expr = parse_expr()) {
         stmt_let->expr = expr.value();
       } else {
-        std::cerr << "Invalid expression" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
-      try_consume(TokenType::_semi, "Did you forget the semicolon?");
+      try_consume_err(TokenType::_semi);
       auto stmt = m_allocator.alloc<NodeStmt>();
       stmt->var = stmt_let;
       return stmt;
@@ -335,10 +334,9 @@ class Parser {
       if (auto expr = parse_expr()) {
         assign->expr = expr.value();
       } else {
-        std::cerr << "Expected expression" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
-      try_consume(TokenType::_semi, "Expected semi-colon");
+      try_consume_err(TokenType::_semi);
       auto stmt = m_allocator.alloc<NodeStmt>();
       stmt->var = assign;
       return stmt;
@@ -349,24 +347,21 @@ class Parser {
         stmt->var = scope.value();
         return stmt;
       } else {
-        std::cerr << "Invalid scope\n";
-        exit(EXIT_FAILURE);
+        error_expected("scope");
       }
     } else if (auto if_ = try_consume(TokenType::_if)) {
-      try_consume(TokenType::_open_paren, "Expected open parenthesis");
+      try_consume_err(TokenType::_open_paren);
       auto stmt_if = m_allocator.alloc<NodeStmtIf>();
       if (auto expr = parse_expr()) {
         stmt_if->expr = expr.value();
       } else {
-        std::cerr << "Invalid expresion inside if\n";
-        exit(EXIT_FAILURE);
+        error_expected("expression");
       }
-      try_consume(TokenType::_close_paren, "Expected closed parenthesis");
+      try_consume_err(TokenType::_close_paren);
       if (auto scope = parse_scope()) {
         stmt_if->scope = scope.value();
       } else {
-        std::cerr << "Invalid scope\n";
-        exit(EXIT_FAILURE);
+        error_expected("scope");
       }
       stmt_if->pred = parse_if_pred();
       auto stmt = m_allocator.alloc<NodeStmt>();
@@ -382,8 +377,7 @@ class Parser {
       if (auto stmt = parse_stmt()) {
         prog->stmts.push_back(stmt.value());
       } else {
-        std::cerr << "Invalid statement" << std::endl;
-        exit(EXIT_FAILURE);
+        error_expected("statement");
       }
     }
     return prog;
