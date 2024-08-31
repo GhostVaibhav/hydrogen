@@ -90,8 +90,15 @@ struct NodeStmtIf {
   std::optional<NodeIfPred*> pred;
 };
 
+struct NodeStmtReAssign {
+  Token ident;
+  NodeExpr* expr;
+};
+
 struct NodeStmt {
-  std::variant<NodeStmtExit*, NodeStmtLet*, NodeScope*, NodeStmtIf*> var;
+  std::variant<NodeStmtExit*, NodeStmtLet*, NodeScope*, NodeStmtIf*,
+               NodeStmtReAssign*>
+      var;
 };
 
 struct NodeProg {
@@ -318,6 +325,22 @@ class Parser {
       try_consume(TokenType::_semi, "Did you forget the semicolon?");
       auto stmt = m_allocator.alloc<NodeStmt>();
       stmt->var = stmt_let;
+      return stmt;
+    } else if (peek().has_value() && peek().value().type == TokenType::_ident &&
+               peek(1).has_value() &&
+               peek(1).value().type == TokenType::_op_eq) {
+      auto assign = m_allocator.alloc<NodeStmtReAssign>();
+      assign->ident = consume();
+      consume();
+      if (auto expr = parse_expr()) {
+        assign->expr = expr.value();
+      } else {
+        std::cerr << "Expected expression" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      try_consume(TokenType::_semi, "Expected semi-colon");
+      auto stmt = m_allocator.alloc<NodeStmt>();
+      stmt->var = assign;
       return stmt;
     } else if (peek().has_value() &&
                peek().value().type == TokenType::_open_braces) {

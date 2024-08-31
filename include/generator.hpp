@@ -210,12 +210,32 @@ class Generator {
         gen.m_output << "    test rax, rax\n";
         gen.m_output << "    jz " << label << "\n";
         gen.gen_scope(stmt_if->scope);
+        std::optional<std::string> end_label;
+        if (stmt_if->pred.has_value()) {
+          end_label = gen.create_label();
+          gen.m_output << "    jmp " << end_label.value() << "\n";
+        }
         gen.m_output << label << ":\n";
         if (stmt_if->pred.has_value()) {
-          const std::string end_label = gen.create_label();
-          gen.gen_if_pred(stmt_if->pred.value(), end_label);
-          gen.m_output << end_label << ":\n";
+          gen.gen_if_pred(stmt_if->pred.value(), end_label.value());
+          gen.m_output << end_label.value() << ":\n";
         }
+      }
+      void operator()(const NodeStmtReAssign* assign) const {
+        auto it = std::find_if(gen.m_vars.begin(), gen.m_vars.end(),
+                               [&](const var& elt) {
+                                 return elt.name == assign->ident.value.value();
+                               });
+        if (it == gen.m_vars.end()) {
+          std::cerr << "Undeclared identifier: " << assign->ident.value.value()
+                    << std::endl;
+          exit(EXIT_FAILURE);
+        }
+        gen.gen_expr(assign->expr);
+        gen.pop("rax");
+        gen.m_output << "    mov [rsp + "
+                     << (gen.m_stack_size - it->stack_loc - 1) * 8
+                     << "], rax\n";
       }
     };
 
